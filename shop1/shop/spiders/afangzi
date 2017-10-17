@@ -1,0 +1,160 @@
+# -*- coding: utf-8 -*-
+#
+import redis
+import pymysql
+import urllib.request
+import string
+import re
+import os
+import time
+import threading
+import random
+from lxml import etree
+
+rconn = redis.Redis("192.168.60.171", "6666")
+
+
+def mysql_write():
+    conn = pymysql.connect(host="127.0.0.1", user="root", passwd="root", db="tb", charset="utf8")
+
+
+uapools = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.79 Safari/537.36 Edge/14.14393",
+    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/49.0.2623.22 Safari/537.36 SE 2.X MetaSr 1.0",
+    "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1; Maxthon 2.0)",
+]
+
+
+def ua(uapools):
+    thisua = random.choice(uapools)
+    print(thisua)
+    headers = ("User-Agent", thisua)
+    opener = urllib.request.build_opener()
+    opener.addheaders = [headers]
+    # 安装为全局
+    urllib.request.install_opener(opener)
+
+
+def get_data(begin_page, end_page, dir, threadNum, threadNo=None):
+    # set_logs('开始抓取:%s.' % threadNo)
+    rst = []
+    name = ""
+    data = ""
+    sql = "insert into aijia(location,price,discuss_num,collect_num,roomer_num,able_live_num,house_type,title) values(%s,%s,%s,%s,%s,%s,%s,%s)"
+    conn = pymysql.connect(host="127.0.0.1", user="root", passwd="root", db="tb", charset="utf8")
+    start_url1 = "https://zh.airbnb.com/rooms/6596814"
+    # start_url="http://www.17k.com/book/"
+    for i in range(begin_page, end_page + 1):
+        # print(str(url)+str(i))
+        isdo = rconn.hget("url", str(i))
+        if (isdo != None):
+            continue
+        rconn.hset("url", str(i), "1")
+        try:
+
+            # data=urllib.request.urlopen(str(start_url)+str(i)+".html").read().decode("utf-8","ignore")
+            ua(uapools)
+            data = urllib.request.urlopen(str(start_url1)).read().decode("utf-8", "ignore")
+            datatree = etree.HTML(data)
+            # count_number=datatree.xpath("//strong[@data-reactid='592']/@value")
+            # print(len(data))
+        except Exception as err:
+            print(str(i) + str(err))
+            continue
+        #地区
+        pat = '<a href="#neighborhood" class="link-reset" data-reactid="218">(.*?)</a>'
+        rst = re.compile(pat, re.S).findall(data)
+        if (len(rst) == 0):
+            continue
+        location = rst[0]
+
+        #价格
+        pat = '价格￥(.*?)。'
+        rst = re.compile(pat, re.S).findall(data)
+        if (len(rst) == 0):
+            continue
+        price = rst[0]
+
+        #周末价格
+        # pat = '<strong data-reactid="712">(.*?)/'
+        # pat1 = '<span data-reactid="713">(.*?)</span>'
+        # rst = re.compile(pat, re.S).findall(data)
+        # if (len(rst) == 0):
+        #     rst = re.compile(pat1, re.S).findall(data)
+        #     if (len(rst) == 0):
+        #     continue
+        # wekend_price = rst[0]
+        # print(weekend_price)
+        #评论数
+        pat = '<span data-reactid="248">(.*?)条评价</span>'
+        rst = re.compile(pat, re.S).findall(data)
+        if (len(rst) == 0):
+            continue
+        discuss_num = rst[0]
+
+        #被收藏数
+        pat = '"saved_to_wishlist_count":(.*?),'
+        rst = re.compile(pat,re.S).findall(data)
+        if(len(rst)==0):
+            continue
+        collect_num=rst[0]
+
+        #房客数
+        pat='<span class="text-small" data-reactid="312">(.*?)位房客</span>'
+        rst = re.compile(pat,re.S).findall(data)
+        if(len(rst)==0):
+            continue
+        roomer_num=rst[0]
+
+        #可入住人数
+        pat='<strong data-reactid="592">(.*?)</strong>'
+        rst=re.compile(pat,re.S).findall(data)
+        if(len(rst)==0):
+            continue
+        able_live_num=rst[0]
+
+        #房子类型
+        pat='<strong data-reactid="629">(.*?)</strong>'
+        rst=re.compile(pat,re.S).findall(data)
+        if(len(rst)==0):
+            continue
+        house_type=rst[0]
+
+        #房名
+        pat='<title>(.*?)</title>'
+        rst=re.compile(pat,re.S).findall(data)
+        if(len(rst)==0):
+            continue
+        title=rst[0]
+        print(title)
+
+        cursor = conn.cursor()
+        cursor.execute(sql, (location,price,discuss_num,collect_num,roomer_num,able_live_num,house_type,title))
+        conn.commit()
+        # conn.close()
+
+def end_write():
+    # conn.close()
+    print('all over:%s' % time.strftime("%Y-%m-%d %H:%M:%S"))
+    # rconn.hset("rst",str(i),str(name))
+if __name__ == "__main__":
+
+    # statr page
+    begin_page = 1
+    # end page
+    end_page = 22
+    # 总线程数
+    threadNum = 2
+
+    threads = []
+    for i in range(0, threadNum):
+        t = threading.Thread(target=get_data, name='get_data', args=(begin_page, end_page, threadNum, i))
+        threads.append(t)
+
+    for t in threads:
+        t.setDaemon(True)
+        t.start()
+
+    for t in threads:
+        t.join()
+    end_write()
