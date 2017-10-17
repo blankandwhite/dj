@@ -31,6 +31,6 @@ S=set([1,2,3,4,5])
 gl1=dict2[1]
 dict_null={1:1,2:3,3:4,5:6}
 print(str(dict_null[2])+"null dict!")
-
+#www
 
 
